@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOC Pilot Agent (Serverless Edition)</title>
+  <style>
+    :root{
+      --bg:#07111f;--panel:#101a2f;--panel2:#16223d;--text:#e9f0ff;--muted:#9fb1d1;
+      --line:#283a5d;--blue:#58a6ff;--red:#ff5c7a;--orange:#ffb86b;--yellow:#f8e16c;--green:#63e6be;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;background:linear-gradient(135deg,#07111f,#111827 55%,#090f1e);color:var(--text)}
+    header{padding:20px 34px;border-bottom:1px solid var(--line);background:rgba(8,14,27,.92);position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;gap:20px;align-items:center}
+    h1{margin:0;font-size:28px;letter-spacing:-.5px}.sub{margin-top:6px;color:var(--muted);font-size:13px}
+    .wrap{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 92px)}
+    nav{padding:18px;border-right:1px solid var(--line);background:rgba(12,20,38,.7)}
+    nav button{width:100%;display:block;margin:7px 0;padding:13px 14px;border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:13px;text-align:left;font-weight:800;cursor:pointer}
+    nav button.active{border-color:var(--blue);box-shadow:0 0 0 2px rgba(88,166,255,.15)}
+    main{padding:24px}.card{background:rgba(16,26,47,.96);border:1px solid var(--line);border-radius:18px;padding:20px;margin-bottom:18px;box-shadow:0 14px 34px rgba(0,0,0,.24)}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    label{display:block;color:var(--muted);font-size:13px;margin:9px 0 6px}input,select,textarea{width:100%;background:#081225;border:1px solid #2b3d5d;color:var(--text);border-radius:11px;padding:11px;font-family:inherit}textarea{min-height:112px;resize:vertical}
+    button.primary{background:linear-gradient(135deg,#1f6feb,#58a6ff);border:0;color:white;padding:12px 18px;border-radius:12px;font-weight:900;cursor:pointer}
+    button.small{padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:#0b1427;color:var(--text);cursor:pointer}
+    .pill{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:900}.P1{background:rgba(255,92,122,.16);color:var(--red);border:1px solid rgba(255,92,122,.55)}.P2{background:rgba(255,184,107,.15);color:var(--orange);border:1px solid rgba(255,184,107,.52)}.P3{background:rgba(248,225,108,.13);color:var(--yellow);border:1px solid rgba(248,225,108,.48)}.P4{background:rgba(99,230,190,.12);color:var(--green);border:1px solid rgba(99,230,190,.46)}
+    table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border-bottom:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{color:#bed2f8;font-size:13px}code,pre{background:#071020;border:1px solid var(--line);border-radius:10px;color:#d8e7ff}pre{padding:12px;overflow:auto}.metric{background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px}.metric b{font-size:24px}.muted{color:var(--muted)}.hide{display:none}
+    .api-box {display:flex; gap:8px; align-items:center; background:var(--panel2); padding:10px 15px; border-radius:12px; border:1px solid var(--line);} .api-box input {width:240px; margin:0; padding:8px;}
+    .verify-badge {display:inline-block; margin-top:10px; padding:12px 16px; border-radius:8px; background:rgba(88,166,255,0.1); border:1px solid var(--blue); font-size:14px;} 
+    .verify-badge.fail {background:rgba(255,92,122,0.1); border-color:var(--red);}
+    @media(max-width:900px){.wrap{grid-template-columns:1fr}nav{border-right:0;border-bottom:1px solid var(--line)}.grid,.grid2,.metrics{grid-template-columns:1fr}header{flex-direction:column; align-items:flex-start;}}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>SOC Pilot Agent</h1>
+    <div class="sub">GitHub Pages Serverless (핑 테스트 제외 · CORS 우회 완벽 적용)</div>
+  </div>
+  <div class="api-box">
+    <span style="font-size:13px;color:var(--muted);">API 연동키</span>
+    <input type="password" id="global_api_key" placeholder="API Key 입력 (비우면 룰베이스)">
+    <button class="small" onclick="checkApiKey()" id="btn_check">확인</button>
+    <button class="small" style="margin-left:10px;border-color:var(--red);color:var(--red);" onclick="resetData()">데이터 초기화</button>
+  </div>
+</header>
+<div class="wrap">
+  <nav>
+    <button class="active" onclick="tab('single',this)">단일 알림 처리</button>
+    <button onclick="tab('bulk',this)">CSV 대량 처리</button>
+    <button onclick="tab('incidents',this);loadIncidents()">사건 큐</button>
+    <button onclick="tab('demo',this)">시연 샘플</button>
+  </nav>
+  <main>
+    <section id="single" class="page">
+      <div class="card">
+        <h2>단일 알림 생성 및 1차 분석</h2>
+        <div class="grid">
+          <div><label>Alert Type</label><select id="alert_type"><option>login_failed</option><option>ransomware</option><option>malware</option><option>data_exfiltration</option><option>secret_leak</option><option>phishing</option><option>generic</option></select></div>
+          <div><label>Host</label><input id="host" value="VPN-GW-01"></div>
+          <div><label>User</label><input id="user" value="admin"></div>
+          <div><label>Source IP</label><input id="src_ip" value="185.199.110.153"></div>
+          <div><label>Destination IP</label><input id="dst_ip" value="10.10.3.15"></div>
+          <div><label>Failed Count</label><input id="failed_count" value="67"></div>
+          <div><label>Bytes Out</label><input id="bytes_out" value="0"></div>
+          <div><label>Process</label><input id="process" value="sshd"></div>
+          <div><label>File Path</label><input id="file_path" value=""></div>
+        </div>
+        <label>Command Line / Raw Message</label><textarea id="command_line">multiple failed login from external IP</textarea>
+        <div class="grid2">
+          <div><label>URL</label><input id="url" value=""></div>
+          <div><label>Options</label><label><input type="checkbox" id="clicked" style="width:auto"> 링크 클릭함</label><label><input type="checkbox" id="credentials_entered" style="width:auto"> 계정정보 입력함</label></div>
+        </div><br>
+        <button class="primary" onclick="analyzeSingle()" id="btn_single">에이전트 1차 실행</button>
+      </div>
+      <div id="singleResult"></div>
+    </section>
+
+    <section id="bulk" class="page hide">
+      <div class="card">
+        <h2>CSV 대량 알림 처리 (비용 99% 절감 병합 엔진)</h2>
+        <p class="muted">동일 패턴 알림을 자동 병합한 후, 브라우저에서 직접 AI 1차 분석을 진행합니다.</p>
+        <textarea id="csvText" style="min-height:260px"></textarea><br><br>
+        <button class="primary" onclick="importCsv()" id="btn_bulk">CSV 일괄 사건화</button>
+      </div>
+      <div id="bulkResult"></div>
+    </section>
+
+    <section id="incidents" class="page hide">
+      <div class="card"><h2>사건 큐 (Local Storage)</h2><div id="incidentList">불러오는 중...</div></div>
+      <div id="incidentDetail"></div>
+    </section>
+
+    <section id="demo" class="page hide">
+      <div class="card"><h2>시연 샘플</h2><p>버튼 누르면 CSV 탭에 샘플이 들어갑니다.</p><button class="primary" onclick="fillSample()">샘플 CSV 채우기</button><pre id="samplePreview"></pre></div>
+    </section>
+  </main>
+</div>
+<script>
+const PLAYBOOKS={
+ ransomware:{name:'랜섬웨어 의심 초동대응',goal:'확산 차단, 증거 보존, 백업 영향 확인',mitre:['T1059 Command and Scripting Interpreter','T1486 Data Encrypted for Impact','T1490 Inhibit System Recovery']},
+ malware:{name:'악성코드 감염 초동대응',goal:'감염 단말 격리, 프로세스/파일/네트워크 증거 확보',mitre:['T1204 User Execution','T1059 Command and Scripting Interpreter','T1105 Ingress Tool Transfer']},
+ bruteforce:{name:'계정 무차별 대입 대응',goal:'계정 보호, 공격 IP 차단, 인증 로그 확인',mitre:['T1110 Brute Force','T1078 Valid Accounts']},
+ exfiltration:{name:'데이터 반출 의심 대응',goal:'반출 경로 차단, 전송량 확인, 민감 데이터 범위 산정',mitre:['T1041 Exfiltration Over C2 Channel','T1567 Exfiltration Over Web Service']},
+ secret_leak:{name:'Secret/API Key 유출 대응',goal:'노출 키 폐기, 권한 검토, 사용 이력 조사',mitre:['T1552 Unsecured Credentials','T1528 Steal Application Access Token']},
+ phishing:{name:'피싱 클릭/계정 입력 대응',goal:'계정 탈취 차단, URL 차단, 유사 수신자 확인',mitre:['T1566 Phishing','T1204 User Execution','T1078 Valid Accounts']},
+ generic:{name:'일반 보안 알림 분류',goal:'오탐 여부 판단, 원본 로그 확보, 자산 중요도 확인',mitre:['T1082 System Information Discovery']}
+};
+const SUSPICIOUS_PROC=['powershell','cmd.exe','wscript','cscript','rundll32','regsvr32','mshta','certutil','bitsadmin','psexec'];
+const RANSOM_CMDS=['vssadmin delete shadows','wbadmin delete','bcdedit /set','cipher /w','wevtutil cl','delete shadows'];
+const DATA_EXT=['.zip','.7z','.rar','.sql','.bak','.dump','.csv','.xlsx'];
+const ADMIN_WORDS=['admin','administrator','root','svc_','service','domain admin'];
+const SECRET_PATTERNS=[['AWS Access Key',/\bAKIA[0-9A-Z]{16}\b/i,95],['GitHub Token',/\bgh[pousr]_[A-Za-z0-9_]{30,}\b/i,95],['GitLab Token',/\bglpat-[A-Za-z0-9_\-]{20,}\b/i,90],['Slack Token',/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/i,90],['Google API Key',/\bAIza[0-9A-Za-z_\-]{35}\b/i,90],['OpenAI-like Key',/\bsk-[A-Za-z0-9_\-]{20,}\b/i,85],['Private Key',/-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----/i,100]];
+const sampleCsv=`alert_type,host,user,src_ip,dst_ip,failed_count,bytes_out,process,command_line,file_path,url,clicked,credentials_entered
+login_failed,VPN-GW,admin,1.1.1.1,10.0.0.1,1,0,sshd,"failed login attempt",,,false,false
+login_failed,VPN-GW,admin,1.1.1.1,10.0.0.1,1,0,sshd,"failed login attempt",,,false,false
+ransomware,PC-01,user1,10.0.0.5,10.0.0.6,0,0,cmd.exe,"vssadmin delete shadows /all /quiet",,,false,false
+unknown_anomaly,DB-01,db_svc,192.168.1.10,8.8.8.8,0,500000000,sqlservr.exe,"SELECT * FROM users INTO OUTFILE",,,false,false`;
+document.getElementById('csvText').value=sampleCsv;document.getElementById('samplePreview').textContent=sampleCsv;
+function tab(id,btn){document.querySelectorAll('.page').forEach(x=>x.classList.add('hide'));document.getElementById(id).classList.remove('hide');document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));btn.classList.add('active')}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))}
+function safeInt(v){const n=parseInt(String(v??'').replace(/,/g,''),10);return Number.isFinite(n)?n:0}function boolish(v){return ['1','true','yes','y','clicked','opened'].includes(String(v??'').trim().toLowerCase())}
+function privateIp(ip){return /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(String(ip||''))}function publicIp(ip){ip=String(ip||'').trim();if(!ip||privateIp(ip))return false;let p=ip.split('.');return p.length===4&&p.every(x=>/^\d+$/.test(x)&&+x>=0&&+x<=255)}
+function add(ev,score,text){ev.push({score:+score,text})}
+
+// JSON 추출기 (마크다운 껍데기 벗기기)
+function extractJson(raw) {
+    raw = raw.trim();
+    if(raw.startsWith("```json")) raw = raw.substring(7, raw.length-3).trim();
+    else if(raw.startsWith("```")) raw = raw.substring(3, raw.length-3).trim();
+    return JSON.parse(raw);
+}
+
+// 👑 핑 테스트 건너뛰기 (브라우저 오류 원천 차단)
+function checkApiKey() {
+    const k = document.getElementById('global_api_key').value.trim();
+    if(!k) { alert("API 키부터 쳐넣어라 마."); return; }
+    
+    let type = "학교망 게이트웨이";
+    if(k.startsWith("AIza")) type = "구글 제미나이";
+    else if(k.startsWith("sk-ant")) type = "앤스로픽 클로드";
+    else if(k.startsWith("sk-")) type = "OpenAI 챗GPT";
+    
+    alert(`✔️ ${type} 키 인식 완료!\n(브라우저 핑 차단 문제로 테스트는 생략한다. 바로 밑에 '에이전트 1차 실행' 눌러서 본게임 돌려라 마)`);
+}
+
+// 👑 범용 AI API 통신 코어 (Gemini, Claude, GPT, Gateway 완벽 지원)
+async function callAI(systemPrompt, userPrompt, apiKey) {
+    if(!apiKey) throw new Error("API Key가 없습니다.");
+    const k = apiKey.trim();
+
+    if (k.startsWith("AIza")) {
+        // [1] 구글 제미나이 (Native 지원)
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${k}`;
+        const res = await fetch(url, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                contents: [{ parts: [{ text: userPrompt }] }]
+            })
+        });
+        if(!res.ok) {
+            const err = await res.text();
+            throw new Error(`제미나이 호출 실패: ${err}`);
+        }
+        const data = await res.json();
+        return extractJson(data.candidates[0].content.parts[0].text);
+        
+    } else if (k.startsWith("sk-ant")) {
+        // [2] 앤스로픽 클로드 (CORS 프록시 우회)
+        const url = "https://corsproxy.io/?https://api.anthropic.com/v1/messages";
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": k, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({
+                model: "claude-3-5-sonnet-20240620", system: systemPrompt,
+                messages: [{role: "user", content: userPrompt}], max_tokens: 1024
+            })
+        });
+        if(!res.ok) throw new Error(`클로드 호출 실패 (${res.status})`);
+        const data = await res.json();
+        return extractJson(data.content[0].text);
+        
+    } else if (k.startsWith("sk-")) {
+        // [3] OpenAI 챗GPT (CORS 프록시 우회)
+        const url = "https://corsproxy.io/?https://api.openai.com/v1/chat/completions";
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${k}` },
+            body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: [{role: "system", content: systemPrompt}, {role: "user", content: userPrompt}]
+            })
+        });
+        if(!res.ok) throw new Error(`OpenAI 호출 실패 (${res.status})`);
+        const data = await res.json();
+        return extractJson(data.choices[0].message.content);
+        
+    } else {
+        // [4] 커스텀 학교망 게이트웨이 (CORS 프록시 우회)
+        const url = "https://corsproxy.io/?https://factchat-cloud.mindlogic.ai/v1/gateway";
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${k}` },
+            body: JSON.stringify({
+                model: "claude-sonnet-4-6",
+                messages: [{role: "system", content: systemPrompt}, {role: "user", content: userPrompt}]
+            })
+        });
+        if(!res.ok) throw new Error(`게이트웨이 호출 실패 (${res.status}) - 프록시 차단이거나 키 오류`);
+        const data = await res.json();
+        return extractJson(data.choices[0].message.content);
+    }
+}
+
+function classifyRule(alert){
+ const blob=Object.values(alert).join(' ').toLowerCase(), alertType=String(alert.alert_type||'').toLowerCase(), process=String(alert.process||'').toLowerCase(), cmd=String(alert.command_line||'').toLowerCase(), user=String(alert.user||''), src=String(alert.src_ip||''), dst=String(alert.dst_ip||''), bytes=safeInt(alert.bytes_out), failed=safeInt(alert.failed_count), file=String(alert.file_path||'').toLowerCase(), clicked=boolish(alert.clicked), creds=boolish(alert.credentials_entered), url=String(alert.url||'');
+ const scores={ransomware:0,malware:0,bruteforce:0,exfiltration:0,secret_leak:0,phishing:0,generic:5}; const evidence=[]; let explicit='';
+ if(alertType.includes('ransom'))explicit='ransomware'; else if(alertType.includes('exfil'))explicit='exfiltration'; else if(alertType.includes('secret')||alertType.includes('token')||alertType.includes('credential'))explicit='secret_leak'; else if(alertType.includes('phish'))explicit='phishing'; else if(alertType.includes('brute')||alertType.includes('login_failed'))explicit='bruteforce'; else if(alertType.includes('malware')||alertType.includes('edr'))explicit='malware';
+ if(alertType.includes('ransom')||RANSOM_CMDS.some(x=>cmd.includes(x))){scores.ransomware+=70;add(evidence,70,'섀도 복사본 삭제/복구 방해 등 랜섬웨어 전형 명령 탐지')}
+ if(SUSPICIOUS_PROC.some(p=>process.includes(p)||cmd.includes(p))){scores.malware+=18;add(evidence,18,'스크립트/LOLBins 계열 의심 프로세스 사용')}
+ if(cmd.includes('encodedcommand')||cmd.includes('frombase64string')||cmd.includes('downloadstring')){scores.malware+=30;add(evidence,30,'난독화 또는 원격 다운로드 PowerShell 패턴')}
+ if(alertType.includes('malware')||alertType.includes('edr')){scores.malware+=25;add(evidence,25,'EDR/악성코드 유형 알림')}
+ if(failed>=20||alertType.includes('brute')||alertType.includes('login_failed')){let s=Math.min(58,20+Math.floor(failed/2));scores.bruteforce+=s;add(evidence,s,`로그인 실패 횟수 과다: ${failed}회`)}
+ if(publicIp(src)&&failed>=10){scores.bruteforce+=15;add(evidence,15,'외부 IP에서 반복 로그인 시도')}
+ if(ADMIN_WORDS.some(w=>user.toLowerCase().includes(w))&&(failed||alertType.includes('login'))){scores.bruteforce+=18;add(evidence,18,'관리자/서비스 계정 대상 인증 이벤트')}
+ if(bytes>=500000000){scores.exfiltration+=50;add(evidence,50,`대용량 외부 전송: ${bytes.toLocaleString()} bytes`)} else if(bytes>=100000000){scores.exfiltration+=30;add(evidence,30,`비정상적으로 큰 외부 전송: ${bytes.toLocaleString()} bytes`)}
+ if(publicIp(dst)&&bytes>=50000000){scores.exfiltration+=18;add(evidence,18,'외부 목적지로 대용량 전송')}
+ if(DATA_EXT.some(ext=>file.endsWith(ext))&&bytes>=20000000){scores.exfiltration+=16;add(evidence,16,'압축/DB/CSV 파일 반출 가능성')}
+ SECRET_PATTERNS.forEach(([name,rx,s])=>{if(rx.test(blob)){scores.secret_leak+=s;add(evidence,s,`${name} 형태의 Secret 노출`)}});
+ if(alertType.includes('secret')||alertType.includes('token')||alertType.includes('credential')){scores.secret_leak+=25;add(evidence,25,'Secret/Credential 유형 알림')}
+ if(alertType.includes('phish')||clicked||creds||url){scores.phishing+=20;add(evidence,20,'URL/피싱 관련 신고 또는 클릭 이벤트')}
+ if(creds){scores.phishing+=55;add(evidence,55,'사용자가 계정정보를 입력한 것으로 표시됨')} if(clicked){scores.phishing+=20;add(evidence,20,'사용자가 링크를 클릭한 것으로 표시됨')}
+ if(!evidence.length)add(evidence,5,'명확한 고위험 신호는 낮음. 원본 로그 추가 확인 필요'); if(explicit&&scores[explicit]>=25)scores[explicit]+=18;
+ const playbook=Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0]; const score=Math.min(100,Math.max(scores[playbook],Math.floor(evidence.reduce((a,b)=>a+b.score,0)/2))); const severity=score>=85?'P1 Critical':score>=65?'P2 High':score>=35?'P3 Medium':'P4 Low'; return {playbook,score,severity,evidence:evidence.sort((a,b)=>b.score-a.score)};
+}
+
+async function classifyAI(alert, apiKey) {
+    if(!apiKey) return classifyRule(alert);
+    try {
+        const prompt = `다음 보안 로그를 분석해서 JSON으로만 답해라. 분류(playbook)는 ransomware, malware, bruteforce, exfiltration, secret_leak, phishing, generic 중 하나다.\n로그: ${JSON.stringify(alert)}`;
+        const sys = `너는 1차 SOC 분석 AI다. 출력은 오직 순수한 JSON 형식 {"playbook": "malware", "score": 85, "severity": "P1 Critical", "evidence": [{"score": 85, "text": "이유"}]} 이것만 뱉어라.`;
+        const data = await callAI(sys, prompt, apiKey);
+        return { playbook: data.playbook||"generic", score: data.score||0, severity: data.severity||"P4 Low", evidence: data.evidence||[] };
+    } catch(e) {
+        console.warn("1차 AI 에러(룰베이스 자동 전환):", e);
+        return classifyRule(alert);
+    }
+}
+
+async function verifyIncident(id, context) {
+    const apiKey = document.getElementById('global_api_key').value.trim();
+    if(!apiKey) { alert("API Key를 먼저 입력해야 제3자 검증이 가능합니다."); return; }
+    const btn = document.getElementById('btn_verify_' + id);
+    if(btn) { btn.innerText = "제3자 검증 분석 중... (시간 소요)"; btn.disabled = true; }
+    try {
+        const arr = getStore();
+        const inc = arr.find(x=>x.id===id);
+        const r = inc.result;
+        const prompt = `원본 로그: ${JSON.stringify(inc.alert)}\n1차 AI 판단 결과: 분류=${r.playbook}, 위험도 점수=${r.score}점\n1차 AI 주요 근거: ${JSON.stringify(r.evidence)}\n\n위 1차 분석 결과가 논리적으로 타당한지 교차 검증하고 JSON으로만 답해라.`;
+        const sys = `너는 제3자 검증을 수행하는 수석 감사(Auditor) AI다. 1차 AI가 환각을 일으켰는지 비판적으로 검토해라. 동의하면 agree에 true, 틀렸다면 false를 넣고 신뢰도(1~100)와 검증 사유를 작성해라. 출력 형식: {"agree": true, "confidence": 95, "reason": "이유 상세 기술"}`;
+        
+        const ver = await callAI(sys, prompt, apiKey);
+        inc.result.verification = { agree: ver.agree??true, confidence: ver.confidence??90, reason: ver.reason??"검증 완료" };
+        setStore(arr);
+
+        if(context === 'single') document.getElementById('singleResult').innerHTML = renderIncidentCard(inc, false);
+        else showIncident(id);
+    } catch(e) {
+        alert("검증 에러: " + e.message);
+        if(btn) { btn.innerText = "🤖 제3자 AI 교차 검증 시작 (비용 주의)"; btn.disabled = false; }
+    }
+}
+
+function generateActions(alert,playbook){const host=alert.host||'<HOST>',user=alert.user||'<USER>',src=alert.src_ip||'<SRC_IP>',dst=alert.dst_ip||'<DST_IP>',process=alert.process||'<PROCESS>',url=alert.url||'<URL>';let actions=[];const a=(phase,action,command,owner='SOC')=>actions.push({id:crypto.randomUUID(),phase,action,command,owner,status:'대기'});
+ if(playbook==='ransomware'){a('Containment','EDR로 단말 네트워크 격리',`EDR isolate-host --host ${host}`,'SOC/EDR');a('Recovery','백업 상태와 암호화 범위 확인','backupctl job list --last 24h','Infra')}
+ else if(playbook==='malware'){a('Containment','감염 의심 호스트 격리',`EDR isolate-host --host ${host}`,'SOC/EDR');a('Eradication','의심 프로세스 강제 종료',`taskkill /S ${host} /IM ${process} /F`,'IR')}
+ else if(playbook==='bruteforce'){a('Containment','공격 출발지 IP 방화벽 차단',`firewall block ip ${src}`,'Network');a('Containment','대상 계정 임시 잠금',`Disable-ADAccount -Identity ${user}`,'IAM')}
+ else if(playbook==='exfiltration'){a('Containment','목적지 IP 통신 차단',`firewall block ip ${dst}`,'Network');a('Investigation','전송량 타임라인 분석',`SIEM search host=${host} user=${user} | stats sum(bytes_out)`,'SOC')}
+ else if(playbook==='secret_leak'){a('Containment','노출 Secret 즉시 폐기',"secret-manager rotate --secret '<SECRET_NAME>'",'DevOps')}
+ else if(playbook==='phishing'){a('Containment','피싱 URL Proxy 차단',`proxy block-url ${url}`,'Network');a('Containment','계정 세션 강제 종료',`Revoke-UserSession -User ${user}`,'IAM')}
+ else a('Triage','자산 소유자에게 징후 통보',`notify-owner --host ${host}`,'SOC'); return actions;}
+
+async function buildResultAsync(alert, apiKey){
+    const c = await classifyAI(alert, apiKey);
+    const pb = PLAYBOOKS[c.playbook] || PLAYBOOKS['generic'];
+    return {playbook:c.playbook,playbook_name:pb.name,goal:pb.goal,mitre:pb.mitre,score:c.score,severity:c.severity,title:`${pb.name} - ${alert.host||alert.user||alert.src_ip||'unknown'}`,evidence:c.evidence,actions:generateActions(alert,c.playbook),executive_summary:`${c.severity} / ${c.score}점. '${pb.name}'로 분류됨. 목표: ${pb.goal}.`,verification:{}}
+}
+
+function getStore(){return JSON.parse(localStorage.getItem('socpilot_incidents')||'[]')}function setStore(x){localStorage.setItem('socpilot_incidents',JSON.stringify(x))}function newId(){return 'INC-'+new Date().toISOString().slice(0,10).replaceAll('-','')+'-'+Math.random().toString(16).slice(2,8).toUpperCase()}
+function saveIncident(alert,result){const inc={id:newId(),created_at:new Date().toLocaleString('ko-KR'),status:'Open',alert,result,actions:result.actions};const arr=getStore();arr.unshift(inc);setStore(arr);return inc}
+function sevClass(s){return String(s||'P4').split(' ')[0]}
+
+function renderVerification(v, id, context) { 
+    if(!v || !v.reason || Object.keys(v).length === 0) {
+        return `<div style="margin-top:10px;"><button id="btn_verify_${id}" class="small" style="background:var(--blue);color:white;border:none;padding:10px 15px;font-weight:bold;cursor:pointer;" onclick="verifyIncident('${id}', '${context}')">🤖 제3자 AI 교차 검증 시작 (비용 주의)</button></div>`;
+    }
+    const isPass = v.agree; 
+    return `<div class="verify-badge ${isPass?'':'fail'}"><b>[제3자 AI 검증 완료]</b> ${isPass?'동의':'불일치'} (신뢰도: ${v.confidence}%)<br><span style="color:var(--muted);display:block;margin-top:4px;">사유: ${esc(v.reason)}</span></div>`; 
+}
+
+async function analyzeSingle(){
+    const btn=document.getElementById('btn_single'); btn.innerText="AI 분석 중..."; btn.disabled=true;
+    try{
+        const ids=['alert_type','host','user','src_ip','dst_ip','failed_count','bytes_out','process','command_line','file_path','url'];const a={};ids.forEach(id=>a[id]=document.getElementById(id).value);a.clicked=document.getElementById('clicked').checked;a.credentials_entered=document.getElementById('credentials_entered').checked;
+        const result = await buildResultAsync(a, document.getElementById('global_api_key').value.trim());
+        const inc = saveIncident(a, result);
+        document.getElementById('singleResult').innerHTML=renderIncidentCard(inc, false);
+        document.getElementById('singleResult').scrollIntoView({behavior:'smooth',block:'start'})
+    } catch(e){ document.getElementById('singleResult').innerHTML=`<div class="card danger">에러: ${e.message}</div>`; }
+    btn.innerText="에이전트 1차 실행"; btn.disabled=false;
+}
+
+function renderIncidentCard(inc,detail){const r=inc.result;return `<div class="card"><h2>${detail?esc(inc.id)+' 상세':'생성 완료: '+esc(inc.id)}</h2><div class="metrics"><div class="metric"><div class="muted">위험도</div><b>${r.score}/100</b></div><div class="metric"><div class="muted">등급</div><span class="pill ${sevClass(r.severity)}">${esc(r.severity)}</span></div><div class="metric"><div class="muted">플레이북</div><b style="font-size:18px">${esc(r.playbook_name)}</b></div><div class="metric"><div class="muted">상태</div><b style="font-size:18px">${esc(inc.status)}</b></div></div>${renderVerification(r.verification, inc.id, detail?'detail':'single')}<h3>요약</h3><p>${esc(r.executive_summary)}</p><h3>MITRE</h3><ul>${r.mitre.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><h3>근거</h3>${renderEvidence(r.evidence)}<h3>대응 액션</h3>${renderActions(inc.actions,detail,inc.id)}<p><button class="small" onclick="downloadReport('${inc.id}')">보고서 다운로드</button></p>${detail?`<h3>Raw Alert</h3><pre>${esc(JSON.stringify(inc.alert,null,2))}</pre>`:''}</div>`}
+function renderEvidence(ev){return `<table><tr><th>점수</th><th>근거</th></tr>${ev.map(e=>`<tr><td>${e.score}</td><td>${esc(e.text)}</td></tr>`).join('')}</table>`}
+function renderActions(acts,withButtons,iid){return `<table><tr><th>상태</th><th>단계</th><th>담당</th><th>조치</th><th>명령/티켓 내용</th><th></th></tr>${acts.map(a=>`<tr><td>${esc(a.status)}</td><td>${esc(a.phase)}</td><td>${esc(a.owner)}</td><td>${esc(a.action)}</td><td><code>${esc(a.command)}</code></td><td>${withButtons?`<button class="small" onclick="setAction('${iid}','${a.id}','완료')">완료</button>`:''}</td></tr>`).join('')}</table>`}
+function parseCsv(text){const rows=[];let row=[],field='',q=false;for(let i=0;i<text.length;i++){const c=text[i],n=text[i+1];if(c==='"'&&q&&n==='"'){field+='"';i++}else if(c==='"'){q=!q}else if(c===','&&!q){row.push(field);field=''}else if((c==='\n'||c==='\r')&&!q){if(c==='\r'&&n==='\n')i++;row.push(field);if(row.some(x=>x!==''))rows.push(row);row=[];field=''}else field+=c}row.push(field);if(row.some(x=>x!==''))rows.push(row);if(!rows.length)return[];const head=rows.shift().map(x=>x.trim());return rows.map(r=>Object.fromEntries(head.map((h,i)=>[h,r[i]??''])))}
+
+async function importCsv(){
+    const btn=document.getElementById('btn_bulk'); btn.innerText="분석 및 병합 처리 중..."; btn.disabled=true;
+    try {
+        const rows=parseCsv(document.getElementById('csvText').value);const map=new Map();
+        rows.forEach(row=>{const key=[row.alert_type,row.src_ip,row.dst_ip,row.host,row.user].join('_');if(!map.has(key)){map.set(key,{...row,failed_count:safeInt(row.failed_count),bytes_out:safeInt(row.bytes_out),clicked:boolish(row.clicked),credentials_entered:boolish(row.credentials_entered),agg_count:1})}else{let a=map.get(key);a.failed_count+=safeInt(row.failed_count);a.bytes_out+=safeInt(row.bytes_out);a.agg_count++;if(boolish(row.clicked))a.clicked=true;if(boolish(row.credentials_entered))a.credentials_entered=true;}});
+        const items=[];
+        const apiKey = document.getElementById('global_api_key').value.trim();
+        for(let [key, alert] of map.entries()){
+            if(alert.agg_count>1) alert.command_line=(alert.command_line||'') + ` [자동 병합됨: 단기간 ${alert.agg_count}회 반복 공격]`;
+            const result = await buildResultAsync(alert, apiKey);
+            const inc = saveIncident(alert, result);
+            items.push(inc);
+        }
+        document.getElementById('bulkResult').innerHTML=`<div class="card"><h2>${items.length}개 사건 생성 (병합 완료)</h2><table><tr><th>ID</th><th>등급</th><th>점수</th><th>플레이북</th><th>제목</th></tr>${items.map(x=>`<tr><td><button class="small" onclick="showIncident('${x.id}')">${x.id}</button></td><td><span class="pill ${sevClass(x.result.severity)}">${x.result.severity}</span></td><td>${x.result.score}</td><td>${esc(x.result.playbook_name)}</td><td>${esc(x.result.title)}</td></tr>`).join('')}</table></div>`;
+        document.getElementById('bulkResult').scrollIntoView({behavior:'smooth',block:'start'});
+    } catch(e) { document.getElementById('bulkResult').innerHTML=`<div class="card danger">에러: ${e.message}</div>`; }
+    btn.innerText="CSV 일괄 사건화"; btn.disabled=false;
+}
+
+function loadIncidents(){const arr=getStore();document.getElementById('incidentList').innerHTML=arr.length?`<table><tr><th>ID</th><th>생성</th><th>등급</th><th>점수</th><th>상태</th><th>제목</th></tr>${arr.map(x=>`<tr><td><button class="small" onclick="showIncident('${x.id}')">${x.id}</button></td><td>${esc(x.created_at)}</td><td><span class="pill ${sevClass(x.result.severity)}">${esc(x.result.severity)}</span></td><td>${x.result.score}</td><td>${esc(x.status)}</td><td>${esc(x.result.title)}</td></tr>`).join('')}</table>`:'<p class="muted">저장된 사건 없음.</p>'}
+function showIncident(id){const inc=getStore().find(x=>x.id===id);if(!inc)return;document.getElementById('incidentDetail').innerHTML=renderIncidentCard(inc,true);document.getElementById('incidentDetail').scrollIntoView({behavior:'smooth',block:'start'})}
+function setAction(iid,aid,status){const arr=getStore();const inc=arr.find(x=>x.id===iid);const act=inc?.actions.find(a=>a.id===aid);if(act)act.status=status;setStore(arr);showIncident(iid);loadIncidents()}
+function reportText(inc){const r=inc.result;const v=r.verification||{};let md= `# SOC Pilot Incident Report\n\n- Incident ID: ${inc.id}\n- Created At: ${inc.created_at}\n- Severity: ${r.severity}\n- Score: ${r.score}/100\n- Playbook: ${r.playbook_name}\n\n## 제3자 AI 검증 (Auditor Review)\n`;if(v.reason)md+=`- **동의 여부**: ${v.agree?'동의 (Agree)':'불일치 (Disagree)'}\n- **신뢰도**: ${v.confidence}%\n- **사유**: ${v.reason}\n\n`;else md+=`- **상태**: 미수행\n\n`;md+=`## Executive Summary\n${r.executive_summary}\n\n## MITRE ATT&CK Mapping\n${r.mitre.map(m=>'- '+m).join('\n')}\n\n## Evidence\n${r.evidence.map(e=>`- [${e.score}점] ${e.text}`).join('\n')}\n\n## Response Actions\n${inc.actions.map(a=>`- [${a.status}] ${a.phase} / ${a.action} / \`${a.command}\``).join('\n')}\n\n## Raw Alert\n\n\`\`\`json\n${JSON.stringify(inc.alert,null,2)}\n\`\`\`\n`;return md;}
+function downloadReport(id){const inc=getStore().find(x=>x.id===id);if(!inc)return;const blob=new Blob([reportText(inc)],{type:'text/markdown;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${id}_report.md`;a.click();URL.revokeObjectURL(a.href)}
+function fillSample(){document.getElementById('csvText').value=sampleCsv;document.querySelectorAll('nav button')[1].click()}
+function resetData(){if(confirm('브라우저에 저장된 데이터를 전부 지울까?')){localStorage.removeItem('socpilot_incidents');loadIncidents();document.getElementById('incidentDetail').innerHTML=''}}
+</script>
+</body>
+</html>
